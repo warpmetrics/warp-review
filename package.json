@@ -7,7 +7,9 @@
     "warp-review": "./bin/init.js"
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "release:patch": "npm version patch && git push origin main --tags",
+    "release:minor": "npm version minor && git push origin main --tags"
   },
   "files": [
     "bin/",
