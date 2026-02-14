@@ -6,6 +6,9 @@
   "bin": {
     "warp-review": "./bin/init.js"
   },
+  "scripts": {
+    "test": "vitest run"
+  },
   "files": [
     "bin/",
     "src/",
@@ -14,8 +17,8 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@warpmetrics/warp": "latest",
     "@anthropic-ai/sdk": "latest",
+    "@warpmetrics/warp": "latest",
     "minimatch": "^10.0.0"
   },
   "license": "MIT",
@@ -23,5 +26,14 @@
     "type": "git",
     "url": "https://github.com/warpmetrics/warp-review"
   },
-  "keywords": ["code-review", "ai", "github-action", "warpmetrics", "llm"]
+  "keywords": [
+    "code-review",
+    "ai",
+    "github-action",
+    "warpmetrics",
+    "llm"
+  ],
+  "devDependencies": {
+    "vitest": "^3.2.4"
+  }
 }
