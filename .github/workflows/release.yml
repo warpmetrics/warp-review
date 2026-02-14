@@ -34,6 +34,8 @@ jobs:
 
       - name: Update major version tag
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -fa v1 -m "Update v1 tag"
           git push origin v1 --force
 
