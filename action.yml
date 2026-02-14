@@ -1,0 +1,39 @@
+name: 'warp-review'
+description: 'AI code reviewer that learns your codebase. Powered by WarpMetrics.'
+author: 'warpmetrics'
+
+inputs:
+  github-token:
+    description: 'GitHub token for API access'
+    default: ${{ github.token }}
+  llm-api-key:
+    description: 'Anthropic API key (required for review mode, not needed for outcome mode)'
+    required: false
+  warpmetrics-api-key:
+    description: 'WarpMetrics API key (get one at warpmetrics.com/app/api-keys)'
+    required: true
+  mode:
+    description: 'Action mode: review or outcome'
+    required: false
+    default: 'review'
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    - run: npm ci --omit=dev
+      shell: bash
+      working-directory: ${{ github.action_path }}
+    - run: node ${{ github.action_path }}/src/index.js
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        LLM_API_KEY: ${{ inputs.llm-api-key }}
+        WARPMETRICS_API_KEY: ${{ inputs.warpmetrics-api-key }}
+        MODE: ${{ inputs.mode }}
+
+branding:
+  icon: 'eye'
+  color: 'purple'

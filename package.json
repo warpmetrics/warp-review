@@ -1,0 +1,27 @@
+{
+  "name": "@warpmetrics/review",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "AI code reviewer that learns your codebase. Powered by WarpMetrics.",
+  "bin": {
+    "warp-review": "./bin/init.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "defaults/",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@warpmetrics/warp": "latest",
+    "@anthropic-ai/sdk": "latest",
+    "minimatch": "^10.0.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/warpmetrics/warp-review"
+  },
+  "keywords": ["code-review", "ai", "github-action", "warpmetrics", "llm"]
+}

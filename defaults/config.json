@@ -1,0 +1,12 @@
+{
+  "model": "claude-sonnet-4-20250514",
+  "maxFilesPerReview": 15,
+  "ignorePatterns": [
+    "*.lock",
+    "*.min.js",
+    "*.map",
+    "dist/**",
+    "node_modules/**",
+    "*.generated.*"
+  ]
+}

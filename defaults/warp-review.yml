@@ -1,0 +1,32 @@
+name: warp-review
+
+on:
+  pull_request:
+    types: [opened, synchronize, closed]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  review:
+    if: github.event.action == 'opened' || github.event.action == 'synchronize'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: warpmetrics/warp-review@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          llm-api-key: ${{ secrets.WARP_REVIEW_LLM_API_KEY }}
+          warpmetrics-api-key: ${{ secrets.WARP_REVIEW_WARPMETRICS_API_KEY }}
+          mode: review
+
+  track-outcome:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: warpmetrics/warp-review@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          warpmetrics-api-key: ${{ secrets.WARP_REVIEW_WARPMETRICS_API_KEY }}
+          mode: outcome
