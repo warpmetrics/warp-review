@@ -146,6 +146,15 @@ export async function review(ctx) {
         previousFeedback.push({ round: r.opts.round, sha: r.opts.sha, comments });
       }
     }
+    if (previousFeedback.length > 0) {
+      const totalComments = previousFeedback.reduce((sum, r) => sum + r.comments.length, 0);
+      console.log(`warp-review: injecting ${totalComments} previous comment(s) from ${previousFeedback.length} round(s) into prompt`);
+      for (const { round, comments } of previousFeedback) {
+        for (const c of comments) {
+          console.log(`  round ${round}: ${c.file}:${c.line} (${c.category}) — ${c.body.slice(0, 80)}`);
+        }
+      }
+    }
   } else {
     // Create new run (link as follow-up if warp-coder act ID found in PR body)
     if (wmAvailable) {
