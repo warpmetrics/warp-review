@@ -130,12 +130,18 @@ export async function review(ctx) {
     }
     runRef = runDetail.id;
   } else {
-    // Create new run
+    // Create new run (link as follow-up if warp-coder act ID found in PR body)
     if (wmAvailable) {
-      runRef = run('warp-review', {
+      const actMatch = body.match(/<!-- wm:act:(wm_act_\w+) -->/);
+      const runOpts = {
         name: `${fullRepo}#${pr}`, repo: fullRepo, pr, pr_url: htmlUrl,
         pr_author: prAuthor, additions, deletions, changed_files: changedFiles, base_branch: baseBranch,
-      });
+      };
+      if (actMatch) {
+        runRef = run(actMatch[1], 'warp-review', runOpts);
+      } else {
+        runRef = run('warp-review', runOpts);
+      }
     }
   }
 
