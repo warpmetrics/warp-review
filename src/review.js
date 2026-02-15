@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from 'fs';
 import { minimatch } from 'minimatch';
-import { run, group, call, outcome, flush } from '@warpmetrics/warp';
+import { run, group, call, outcome, act, flush } from '@warpmetrics/warp';
 import { createClient } from './llm.js';
 import { findRun } from './warpmetrics.js';
 import {
@@ -59,10 +59,12 @@ async function llmWithRetry(anthropic, params, maxRetries = 3) {
   }
 }
 
-function buildSummary(commentsPosted, filesReviewed, runId, wmAvailable, { totalFiltered = 0, truncatedCount = 0 } = {}) {
+function buildSummary(commentsPosted, filesReviewed, runId, wmAvailable, { totalFiltered = 0, truncatedCount = 0, actId } = {}) {
   const analyticsLink = wmAvailable && runId
     ? `\n\n[View review analytics \u2192](https://app.warpmetrics.com/runs/${runId})`
     : '';
+
+  const actTag = actId ? `\n\n<!-- wm:act:${actId} -->` : '';
 
   const notes = [];
   if (totalFiltered > filesReviewed) {
@@ -76,10 +78,10 @@ function buildSummary(commentsPosted, filesReviewed, runId, wmAvailable, { total
   if (commentsPosted.length > 0) {
     const fileCount = new Set(commentsPosted.map(c => c.file)).size;
     const firstComment = commentsPosted[0].body.slice(0, 100);
-    return `**warp-review** found ${commentsPosted.length} issue(s) in ${fileCount} file(s).${notesText}\n\nMost critical: ${firstComment}${analyticsLink}\n\n<sub>Powered by [WarpMetrics](https://warpmetrics.com) \u00b7 Edit \`.warp-review/skills.md\` to customize</sub>`;
+    return `**warp-review** found ${commentsPosted.length} issue(s) in ${fileCount} file(s).${notesText}\n\nMost critical: ${firstComment}${analyticsLink}${actTag}\n\n<sub>Powered by [WarpMetrics](https://warpmetrics.com) \u00b7 Edit \`.warp-review/skills.md\` to customize</sub>`;
   }
 
-  return `**warp-review** reviewed ${filesReviewed} file(s) \u2014 no issues found.${notesText}${analyticsLink}\n\n<sub>Powered by [WarpMetrics](https://warpmetrics.com)</sub>`;
+  return `**warp-review** reviewed ${filesReviewed} file(s) \u2014 no issues found.${notesText}${analyticsLink}${actTag}\n\n<sub>Powered by [WarpMetrics](https://warpmetrics.com)</sub>`;
 }
 
 export async function review(ctx) {
@@ -255,16 +257,30 @@ export async function review(ctx) {
 
     // Derive runId for summary link
     const runId = typeof runRef === 'string' ? runRef : runRef?.id;
+    const hasIssues = validComments.length > 0;
 
-    // 13. Post review
+    // 13. Log comment groups + outcome + act to WM (before posting review, so we know the act ID)
+    let reviewActId = null;
+    let commentIds = [];
+
+    if (round) {
+      // Outcome + act on the round (for the chain)
+      const outcomeName = hasIssues ? 'Changes Requested' : 'Approved';
+      const oc = outcome(round, outcomeName, { comments: validComments.length });
+      if (oc) {
+        const actRef = act(oc, hasIssues ? 'revise' : 'merge', { pr, repo: fullRepo });
+        if (actRef) reviewActId = actRef.id;
+      }
+    }
+
+    // 14. Post review (with act ID embedded for warp-coder)
     const summaryBody = buildSummary(validComments, filesToReview.length, runId, wmAvailable, {
-      totalFiltered: filtered.length, truncatedCount,
+      totalFiltered: filtered.length, truncatedCount, actId: reviewActId,
     });
     const reviewResult = await postReview(owner, repo, pr, headSha, summaryBody, validComments);
     const reviewId = reviewResult.id;
 
-    // 14. Get comment IDs (matched by array index order)
-    let commentIds = [];
+    // 15. Get comment IDs (matched by array index order)
     if (validComments.length > 0) {
       try {
         commentIds = await getReviewCommentIds(owner, repo, pr, reviewId);
@@ -273,7 +289,7 @@ export async function review(ctx) {
       }
     }
 
-    // 15. Log comment groups + summary to WM
+    // 16. Log comment groups + summary to WM
     if (round) {
       for (let i = 0; i < validComments.length; i++) {
         const c = validComments[i];
