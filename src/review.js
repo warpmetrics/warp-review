@@ -198,7 +198,7 @@ export async function review(ctx) {
     } catch (e) {
       console.error(`LLM API unreachable after retries: ${e.message}`);
       const summaryBody = '**warp-review** could not complete the review \u2014 LLM API unreachable.\n\n<sub>Powered by [WarpMetrics](https://warpmetrics.com)</sub>';
-      await postReview(owner, repo, pr, headSha, summaryBody, []);
+      await postReview(owner, repo, pr, headSha, summaryBody, [], { event: 'COMMENT' });
       return;
     }
 

@@ -72,7 +72,8 @@ export async function getFileViaBlob(owner, repo, sha) {
   return null;
 }
 
-export async function postReview(owner, repo, pr, headSha, body, comments) {
+export async function postReview(owner, repo, pr, headSha, body, comments, { event: eventOverride } = {}) {
+  const event = eventOverride || (comments.length > 0 ? 'REQUEST_CHANGES' : 'APPROVE');
   const res = await fetchWithRetry(
     `https://api.github.com/repos/${owner}/${repo}/pulls/${pr}/reviews`,
     {
@@ -81,7 +82,7 @@ export async function postReview(owner, repo, pr, headSha, body, comments) {
       body: JSON.stringify({
         commit_id: headSha,
         body,
-        event: 'COMMENT',
+        event,
         comments: comments.map(c => ({
           path: c.file,
           line: c.line,
