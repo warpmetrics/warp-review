@@ -21,7 +21,7 @@
   ],
   "dependencies": {
     "@anthropic-ai/sdk": "latest",
-    "@warpmetrics/warp": "latest",
+    "@warpmetrics/warp": "^0.0.16",
     "minimatch": "^10.0.0"
   },
   "license": "MIT",

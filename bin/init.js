@@ -147,9 +147,9 @@ async function main() {
   log('  3. Open a PR to see your first AI review');
   log('  4. View analytics at https://app.warpmetrics.com');
   log('');
-  log('  Optional \u2014 add this badge to your README:');
-  log('  ![warp-review](https://img.shields.io/badge/warp--review---%25%20accepted-purple)');
-  log('  (copy the line above into your README.md)');
+  log('  Optional \u2014 add a dynamic badge to your README:');
+  log('  Enable the badge in your project settings at https://app.warpmetrics.com');
+  log('  to get a live acceptance rate badge powered by your WarpMetrics data.');
   log('');
 
   rl.close();
