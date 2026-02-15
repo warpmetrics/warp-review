@@ -61,7 +61,7 @@ async function llmWithRetry(anthropic, params, maxRetries = 3) {
 
 function buildSummary(commentsPosted, filesReviewed, runId, wmAvailable, { totalFiltered = 0, truncatedCount = 0, actId } = {}) {
   const analyticsLink = wmAvailable && runId
-    ? `\n\n[View review analytics \u2192](https://app.warpmetrics.com/runs/${runId})`
+    ? `\n\n[View review analytics \u2192](https://warpmetrics.com/app/runs/${runId})`
     : '';
 
   const actTag = actId ? `\n\n<!-- wm:act:${actId} -->` : '';
@@ -77,8 +77,7 @@ function buildSummary(commentsPosted, filesReviewed, runId, wmAvailable, { total
 
   if (commentsPosted.length > 0) {
     const fileCount = new Set(commentsPosted.map(c => c.file)).size;
-    const firstComment = commentsPosted[0].body.slice(0, 100);
-    return `**warp-review** found ${commentsPosted.length} issue(s) in ${fileCount} file(s).${notesText}\n\nMost critical: ${firstComment}${analyticsLink}${actTag}\n\n<sub>Powered by [WarpMetrics](https://warpmetrics.com) \u00b7 Edit \`.warp-review/skills.md\` to customize</sub>`;
+    return `**warp-review** found ${commentsPosted.length} issue(s) in ${fileCount} file(s). See inline comments below.${notesText}${analyticsLink}${actTag}\n\n<sub>Powered by [WarpMetrics](https://warpmetrics.com) \u00b7 Edit \`.warp-review/skills.md\` to customize</sub>`;
   }
 
   return `**warp-review** reviewed ${filesReviewed} file(s) \u2014 no issues found.${notesText}${analyticsLink}${actTag}\n\n<sub>Powered by [WarpMetrics](https://warpmetrics.com)</sub>`;
