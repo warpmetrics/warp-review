@@ -114,6 +114,7 @@ export async function review(ctx) {
   // 4. Handle re-review: dismiss previous and supersede
   let runRef;
   let nextRoundNum = 1;
+  const previousFeedback = [];
 
   if (runDetail) {
     const rounds = runDetail.groups.filter(g => g.opts?.round);
@@ -131,6 +132,20 @@ export async function review(ctx) {
       outcome(prevRound.id, 'Superseded');
     }
     runRef = runDetail.id;
+
+    // Extract previous round comments for prompt context
+    const allRounds = runDetail.groups
+      .filter(g => g.opts?.round)
+      .sort((a, b) => a.opts.round - b.opts.round);
+    for (const r of allRounds) {
+      const comments = (r.groups || [])
+        .filter(g => g.label !== '_summary')
+        .map(g => g.opts)
+        .filter(o => o?.file && o?.body);
+      if (comments.length > 0) {
+        previousFeedback.push({ round: r.opts.round, sha: r.opts.sha, comments });
+      }
+    }
   } else {
     // Create new run (link as follow-up if warp-coder act ID found in PR body)
     if (wmAvailable) {
@@ -193,7 +208,7 @@ export async function review(ctx) {
 
     // 10. LLM call
     const anthropic = createClient(process.env.LLM_API_KEY);
-    const systemPrompt = buildSystemPrompt(skills, title, body);
+    const systemPrompt = buildSystemPrompt(skills, title, body, previousFeedback);
 
     let response;
     try {

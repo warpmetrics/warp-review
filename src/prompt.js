@@ -1,4 +1,38 @@
-export function buildSystemPrompt(skills, title, body) {
+const MAX_PREV_FEEDBACK_CHARS = 4000;
+
+function buildPreviousFeedbackSection(previousFeedback) {
+  if (!previousFeedback.length) return '';
+
+  const lines = [
+    '## Previous review rounds',
+    '',
+    'You have reviewed this PR before. Below are your comments from previous rounds.',
+    'The author pushed changes after each round to address your feedback.',
+    '',
+    'CRITICAL: Do NOT contradict or re-raise issues from previous rounds. If the author',
+    'correctly addressed a previous comment, that issue is RESOLVED — do not suggest',
+    'reversing it. Only flag genuinely NEW issues not covered below.',
+    '',
+  ];
+
+  for (const { round, sha, comments } of previousFeedback) {
+    lines.push(`### Round ${round} (${(sha || '').slice(0, 7)})`);
+    for (const c of comments) {
+      lines.push(`- \`${c.file}:${c.line}\` (${c.category || 'other'}): "${c.body}"`);
+    }
+    lines.push('');
+    if (lines.join('\n').length > MAX_PREV_FEEDBACK_CHARS) {
+      lines.push('(earlier rounds truncated)');
+      break;
+    }
+  }
+
+  return lines.join('\n') + '\n';
+}
+
+export function buildSystemPrompt(skills, title, body, previousFeedback = []) {
+  const previousSection = buildPreviousFeedbackSection(previousFeedback);
+
   return `You are warp-review, an AI code reviewer. You review pull request diffs and
 post helpful, actionable comments.
 
@@ -11,7 +45,7 @@ ${skills}
 Title: ${title}
 Description: ${body}
 
-## Instructions
+${previousSection}## Instructions
 
 - You are reviewing an entire pull request across multiple files
 - Use the PR title and description to understand the author's intent
