@@ -7,7 +7,7 @@ function headers() {
 export async function findRun(repo, pr) {
   const name = `${repo}#${pr}`;
   const res = await fetch(
-    `${API}/runs?label=warp-review&name=${encodeURIComponent(name)}&limit=1`,
+    `${API}/runs?label=${encodeURIComponent('Warp Review')}&name=${encodeURIComponent(name)}&limit=1`,
     { headers: headers() },
   );
   if (!res.ok) {

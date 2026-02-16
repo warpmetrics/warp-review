@@ -163,9 +163,9 @@ export async function review(ctx) {
         pr_author: prAuthor, additions, deletions, changed_files: changedFiles, base_branch: baseBranch,
       };
       if (actMatch) {
-        runRef = run(actMatch[1], 'warp-review', runOpts);
+        runRef = run(actMatch[1], 'Warp Review', runOpts);
       } else {
-        runRef = run('warp-review', runOpts);
+        runRef = run('Warp Review', runOpts);
       }
     }
   }
@@ -291,7 +291,7 @@ export async function review(ctx) {
       const outcomeName = hasIssues ? 'Changes Requested' : 'Approved';
       const oc = outcome(round, outcomeName, { comments: validComments.length });
       if (oc) {
-        const actRef = act(oc, hasIssues ? 'revise' : 'merge', { pr, repo: fullRepo });
+        const actRef = act(oc, hasIssues ? 'Revise' : 'Merge', { pr, repo: fullRepo });
         if (actRef) reviewActId = actRef.id;
       }
     }
