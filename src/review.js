@@ -163,9 +163,9 @@ export async function review(ctx) {
         pr_author: prAuthor, additions, deletions, changed_files: changedFiles, base_branch: baseBranch,
       };
       if (actMatch) {
-        runRef = run(actMatch[1], 'Warp Review', runOpts);
+        runRef = run(actMatch[1], 'Code Review', runOpts);
       } else {
-        runRef = run('Warp Review', runOpts);
+        runRef = run('Code Review', runOpts);
       }
     }
   }
