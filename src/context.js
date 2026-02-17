@@ -2,7 +2,7 @@ const DEFAULT_CONTEXT_WINDOW = 200_000;
 const RESERVED_RESPONSE = 4_000;
 
 export function estimateTokens(text) {
-  return Math.ceil(text.length / 3.3);
+  return Math.ceil(text.length / 3);
 }
 
 export function getValidLines(patch) {

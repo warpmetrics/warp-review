@@ -3,6 +3,7 @@
   "maxFilesPerReview": 15,
   "ignorePatterns": [
     "*.lock",
+    "package-lock.json",
     "*.min.js",
     "*.map",
     "dist/**",
