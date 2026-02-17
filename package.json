@@ -1,6 +1,6 @@
 {
   "name": "@warpmetrics/review",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "type": "module",
   "description": "AI code reviewer that learns your codebase. Powered by WarpMetrics.",
   "bin": {
