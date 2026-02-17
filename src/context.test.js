@@ -129,23 +129,24 @@ describe('buildContext', () => {
       { filename: 'a.js', status: 'modified', patch: '+added', content: 'full content' },
       { filename: 'b.js', status: 'added', patch: '+new file', content: 'new' },
     ];
-    const { userMessage } = buildContext(files, {});
-    expect(userMessage).toContain('## File: a.js (modified)');
-    expect(userMessage).toContain('## File: b.js (added)');
-    expect(userMessage).toContain('+added');
-    expect(userMessage).toContain('+new file');
+    const { chunks } = buildContext(files, {});
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toContain('## File: a.js (modified)');
+    expect(chunks[0]).toContain('## File: b.js (added)');
+    expect(chunks[0]).toContain('+added');
+    expect(chunks[0]).toContain('+new file');
   });
 
   it('returns truncatedCount when full content is dropped', () => {
     // Create a file whose diff fits but full content exceeds budget
     const largePatch = 'x'.repeat(100);
-    const largeContent = 'y'.repeat(800_000); // ~200K tokens, exceeds budget
+    const largeContent = 'y'.repeat(800_000); // ~242K tokens at chars/3.3, exceeds budget
     const files = [
       { filename: 'big.js', status: 'modified', patch: largePatch, content: largeContent },
     ];
-    const { userMessage, truncatedCount } = buildContext(files, {});
-    expect(userMessage).toContain('big.js');
-    expect(userMessage).toContain('full content omitted');
+    const { chunks, truncatedCount } = buildContext(files, {});
+    expect(chunks[0]).toContain('big.js');
+    expect(chunks[0]).toContain('full content omitted');
     expect(truncatedCount).toBe(1);
   });
 
@@ -161,9 +162,9 @@ describe('buildContext', () => {
     const files = [
       { filename: 'a.js', status: 'modified', patch: '+line', content: null },
     ];
-    const { userMessage, truncatedCount } = buildContext(files, {});
-    expect(userMessage).toContain('+line');
-    expect(userMessage).not.toContain('Full file content');
+    const { chunks, truncatedCount } = buildContext(files, {});
+    expect(chunks[0]).toContain('+line');
+    expect(chunks[0]).not.toContain('Full file content');
     expect(truncatedCount).toBe(0);
   });
 
@@ -172,9 +173,27 @@ describe('buildContext', () => {
       { filename: 'big.js', status: 'modified', patch: 'x'.repeat(1000), content: null },
       { filename: 'small.js', status: 'modified', patch: 'y', content: null },
     ];
-    const { userMessage } = buildContext(files, {});
-    const bigIdx = userMessage.indexOf('big.js');
-    const smallIdx = userMessage.indexOf('small.js');
+    const { chunks } = buildContext(files, {});
+    // Search in file sections (after the manifest separator)
+    const body = chunks[0].slice(chunks[0].indexOf('## File:'));
+    const bigIdx = body.indexOf('big.js');
+    const smallIdx = body.indexOf('small.js');
     expect(smallIdx).toBeLessThan(bigIdx);
+  });
+
+  it('splits into multiple chunks when files exceed budget', () => {
+    const bigPatch = 'x'.repeat(300_000); // ~91K tokens each
+    const files = [
+      { filename: 'a.js', status: 'modified', patch: bigPatch, content: null },
+      { filename: 'b.js', status: 'modified', patch: bigPatch, content: null },
+      { filename: 'c.js', status: 'modified', patch: bigPatch, content: null },
+    ];
+    const { chunks, truncatedCount } = buildContext(files, {});
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(truncatedCount).toBe(0);
+    // Each chunk should contain the manifest
+    for (const chunk of chunks) {
+      expect(chunk).toContain('All changed files in this PR');
+    }
   });
 });
