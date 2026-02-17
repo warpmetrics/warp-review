@@ -1,9 +1,8 @@
 const DEFAULT_CONTEXT_WINDOW = 200_000;
-const RESERVED_SYSTEM = 4_000;
 const RESERVED_RESPONSE = 4_000;
 
-function estimateTokens(text) {
-  return Math.ceil(text.length / 4);
+export function estimateTokens(text) {
+  return Math.ceil(text.length / 3.3);
 }
 
 export function getValidLines(patch) {
@@ -51,62 +50,94 @@ export function extractSnippet(patch, targetLine) {
   return patchLines.slice(start, end).map(p => p.text).join('\n');
 }
 
-export function buildContext(files, config) {
-  const contextWindow = DEFAULT_CONTEXT_WINDOW;
-  const budget = contextWindow - RESERVED_SYSTEM - RESERVED_RESPONSE;
+function buildManifest(files) {
+  const lines = ['## All changed files in this PR', ''];
+  for (const file of files) {
+    lines.push(`- \`${file.filename}\` (${file.status})`);
+  }
+  lines.push('', '---', '');
+  return lines.join('\n');
+}
+
+function buildFileSection(file, includeFullContent) {
+  const diffText = file.patch || '(no diff available)';
+  const ext = file.filename.split('.').pop() || '';
+  let section = `## File: ${file.filename} (${file.status})\n\n### Diff\n\`\`\`diff\n${diffText}\n\`\`\`\n`;
+
+  if (includeFullContent && file.content) {
+    section += `\n### Full file content\n\`\`\`${ext}\n${file.content}\n\`\`\`\n`;
+  } else if (file.content) {
+    section += `\n### Full file content\n(full content omitted — file too large)\n`;
+  }
+
+  return section;
+}
+
+export function buildContext(files, config, { systemTokens = 4000 } = {}) {
+  const budget = DEFAULT_CONTEXT_WINDOW - systemTokens - RESERVED_RESPONSE;
+  const manifest = buildManifest(files);
+  const manifestTokens = estimateTokens(manifest);
 
   // Sort by diff size ascending — smaller diffs get full context first
   const sorted = [...files].sort((a, b) => {
-    const aDiff = estimateTokens(a.patch || '');
-    const bDiff = estimateTokens(b.patch || '');
-    return aDiff - bDiff;
+    return estimateTokens(a.patch || '') - estimateTokens(b.patch || '');
   });
 
-  let usedTokens = 0;
+  // Pre-compute section costs
+  const fileCosts = sorted.map(file => ({
+    file,
+    diffSection: buildFileSection(file, false),
+    fullSection: file.content ? buildFileSection(file, true) : buildFileSection(file, false),
+    diffTokens: estimateTokens(buildFileSection(file, false)),
+    fullTokens: estimateTokens(file.content ? buildFileSection(file, true) : buildFileSection(file, false)),
+  }));
+
+  const chunks = [];
+  let currentSections = [];
+  let currentTokens = manifestTokens;
   let truncatedCount = 0;
-  const sections = [];
 
-  for (const file of sorted) {
-    const diffText = file.patch || '(no diff available)';
-    const diffTokens = estimateTokens(diffText);
+  for (const { file, diffSection, fullSection, diffTokens, fullTokens } of fileCosts) {
+    // Try full content first
+    if (currentTokens + fullTokens <= budget) {
+      currentSections.push(fullSection);
+      currentTokens += fullTokens;
+    } else if (currentTokens + diffTokens <= budget) {
+      // Diff only fits in current chunk
+      currentSections.push(diffSection);
+      currentTokens += diffTokens;
+      if (file.content) truncatedCount++;
+    } else {
+      // Doesn't fit — flush current chunk and start a new one
+      if (currentSections.length > 0) {
+        chunks.push(manifest + currentSections.join('\n---\n\n'));
+        currentSections = [];
+        currentTokens = manifestTokens;
+      }
 
-    // Always include the diff — skip if even the diff doesn't fit
-    if (usedTokens + diffTokens > budget) {
-      truncatedCount++;
-      continue;
-    }
-
-    let fullContent = file.content || null;
-    let fullContentIncluded = false;
-
-    if (fullContent) {
-      const fullTokens = estimateTokens(fullContent);
-      if (usedTokens + diffTokens + fullTokens <= budget) {
-        fullContentIncluded = true;
-        usedTokens += diffTokens + fullTokens;
+      // Try again in fresh chunk
+      if (currentTokens + fullTokens <= budget) {
+        currentSections.push(fullSection);
+        currentTokens += fullTokens;
+      } else if (currentTokens + diffTokens <= budget) {
+        currentSections.push(diffSection);
+        currentTokens += diffTokens;
+        if (file.content) truncatedCount++;
       } else {
-        // Diff fits, full content doesn't
-        usedTokens += diffTokens;
+        // Even diff alone exceeds a full chunk — skip
         truncatedCount++;
       }
-    } else {
-      usedTokens += diffTokens;
     }
-
-    const ext = file.filename.split('.').pop() || '';
-    let section = `## File: ${file.filename} (${file.status})\n\n### Diff\n\`\`\`diff\n${diffText}\n\`\`\`\n`;
-
-    if (fullContentIncluded && fullContent) {
-      section += `\n### Full file content\n\`\`\`${ext}\n${fullContent}\n\`\`\`\n`;
-    } else if (fullContent) {
-      section += `\n### Full file content\n(full content omitted — file too large)\n`;
-    }
-
-    sections.push(section);
   }
 
-  return {
-    userMessage: sections.join('\n---\n\n'),
-    truncatedCount,
-  };
+  // Flush remaining
+  if (currentSections.length > 0) {
+    chunks.push(manifest + currentSections.join('\n---\n\n'));
+  }
+
+  if (chunks.length === 0) {
+    chunks.push(manifest + '(all files too large for review)');
+  }
+
+  return { chunks, truncatedCount };
 }

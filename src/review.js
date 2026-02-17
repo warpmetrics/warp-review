@@ -7,7 +7,7 @@ import {
   getChangedFiles, getFileContent, getFileViaBlob,
   postReview, getReviewCommentIds, dismissReview,
 } from './github.js';
-import { buildContext, getValidLines, extractSnippet } from './context.js';
+import { buildContext, estimateTokens, getValidLines, extractSnippet } from './context.js';
 import { buildSystemPrompt } from './prompt.js';
 
 const DEFAULT_SKILLS = readFileSync(new URL('../defaults/skills.md', import.meta.url), 'utf8');
@@ -59,7 +59,53 @@ async function llmWithRetry(anthropic, params, maxRetries = 3) {
   }
 }
 
-function buildSummary(commentsPosted, filesReviewed, runId, wmAvailable, { totalFiltered = 0, truncatedCount = 0, actId } = {}) {
+async function reviewChunk(anthropic, config, systemPrompt, userMessage, round) {
+  const response = await llmWithRetry(anthropic, {
+    model: config.model,
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userMessage }],
+  });
+
+  if (round) call(round, response);
+
+  const responseText = response.content?.[0]?.text || '[]';
+  let parsedComments;
+  try {
+    parsedComments = parseComments(responseText);
+  } catch {
+    console.warn('LLM returned invalid JSON, retrying...');
+    try {
+      const retryResponse = await llmWithRetry(anthropic, {
+        model: config.model,
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: [
+          { role: 'user', content: userMessage },
+          { role: 'assistant', content: responseText },
+          { role: 'user', content: 'Your previous response was not valid JSON. Respond with ONLY a JSON array, no other text.' },
+        ],
+      });
+      if (round) call(round, retryResponse);
+      parsedComments = parseComments(retryResponse.content?.[0]?.text || '[]');
+    } catch {
+      console.warn('LLM retry also failed — skipping chunk');
+      parsedComments = [];
+    }
+  }
+
+  return Array.isArray(parsedComments) ? parsedComments : [];
+}
+
+function formatLlmError(e) {
+  const msg = e.message || '';
+  if (e.status === 400 && msg.includes('prompt is too long')) {
+    return { message: `PR diff too large for context window: ${msg}`, isOversize: true };
+  }
+  return { message: `LLM API unreachable after retries: ${msg}`, isOversize: false };
+}
+
+function buildSummary(commentsPosted, filesReviewed, runId, wmAvailable, { totalFiltered = 0, truncatedCount = 0, chunkCount = 1, actId } = {}) {
   const analyticsLink = wmAvailable && runId
     ? `\n\n[View review analytics \u2192](https://warpmetrics.com/app/runs/${runId})`
     : '';
@@ -72,6 +118,9 @@ function buildSummary(commentsPosted, filesReviewed, runId, wmAvailable, { total
   }
   if (truncatedCount > 0) {
     notes.push(`Context was truncated for ${truncatedCount} large file(s).`);
+  }
+  if (chunkCount > 1) {
+    notes.push(`Review split across ${chunkCount} passes for full coverage.`);
   }
   const notesText = notes.length > 0 ? '\n\n' + notes.join(' ') : '';
 
@@ -197,74 +246,73 @@ export async function review(ctx) {
     // 8. Read skills
     const skills = readSkills();
 
-    // 9. Create WM round group
+    // 9. Build system prompt and context chunks
+    const systemPrompt = buildSystemPrompt(skills, title, body, previousFeedback);
+    const systemTokens = estimateTokens(systemPrompt);
+    const { chunks, truncatedCount } = buildContext(filesToReview, config, { systemTokens });
+
+    if (chunks.length > 1) {
+      console.log(`warp-review: PR too large for single pass — splitting into ${chunks.length} chunks`);
+    }
+
+    // 10. Create WM round group
     const languages = [...new Set(filesToReview.map(f => {
       const parts = f.filename.split('.');
       return parts.length > 1 ? `.${parts.pop()}` : '';
     }).filter(Boolean))];
-
-    const { userMessage, truncatedCount } = buildContext(filesToReview, config);
 
     let round = null;
     if (runRef) {
       round = group(runRef, `Review ${nextRoundNum}`, {
         round: nextRoundNum, sha: headSha, model: config.model,
         files_reviewed: filesToReview.length, context_truncated: truncatedCount,
-        languages, timestamp: new Date().toISOString(),
+        chunks: chunks.length, languages, timestamp: new Date().toISOString(),
       });
     }
 
-    // 10. LLM call
+    // 11. Review each chunk
     const anthropic = createClient(process.env.LLM_API_KEY);
-    const systemPrompt = buildSystemPrompt(skills, title, body, previousFeedback);
+    const allComments = [];
+    let chunksFailed = 0;
 
-    let response;
-    try {
-      response = await llmWithRetry(anthropic, {
-        model: config.model,
-        max_tokens: 4096,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userMessage }],
-      });
-    } catch (e) {
-      console.error(`LLM API unreachable after retries: ${e.message}`);
-      const summaryBody = '**warp-review** could not complete the review \u2014 LLM API unreachable.\n\n<sub>Powered by [WarpMetrics](https://warpmetrics.com)</sub>';
-      await postReview(owner, repo, pr, headSha, summaryBody, [], { event: 'COMMENT' });
-      return;
-    }
-
-    if (round) {
-      call(round, response);
-    }
-
-    // 11. Parse LLM response
-    const responseText = response.content?.[0]?.text || '[]';
-    let parsedComments;
-    try {
-      parsedComments = parseComments(responseText);
-    } catch {
-      // Retry once with correction
-      console.warn('LLM returned invalid JSON, retrying...');
+    for (let i = 0; i < chunks.length; i++) {
+      if (chunks.length > 1) {
+        console.log(`warp-review: reviewing chunk ${i + 1}/${chunks.length}...`);
+      }
       try {
-        const retryResponse = await llmWithRetry(anthropic, {
-          model: config.model,
-          max_tokens: 4096,
-          system: systemPrompt,
-          messages: [
-            { role: 'user', content: userMessage },
-            { role: 'assistant', content: responseText },
-            { role: 'user', content: 'Your previous response was not valid JSON. Respond with ONLY a JSON array, no other text.' },
-          ],
-        });
-        if (round) call(round, retryResponse);
-        parsedComments = parseComments(retryResponse.content?.[0]?.text || '[]');
-      } catch {
-        console.warn('LLM retry also failed — posting summary only');
-        parsedComments = [];
+        const comments = await reviewChunk(anthropic, config, systemPrompt, chunks[i], round);
+        allComments.push(...comments);
+      } catch (e) {
+        const { message, isOversize } = formatLlmError(e);
+        if (isOversize) {
+          console.warn(`Chunk ${i + 1}: ${message}`);
+          chunksFailed++;
+        } else {
+          // API unreachable — no point trying remaining chunks
+          if (chunks.length === 1) {
+            console.error(message);
+            const errLabel = isOversize
+              ? '**warp-review** could not complete the review \u2014 PR diff too large for the model context window.'
+              : `**warp-review** could not complete the review \u2014 LLM API unreachable.`;
+            const summaryBody = `${errLabel}\n\n<sub>Powered by [WarpMetrics](https://warpmetrics.com)</sub>`;
+            await postReview(owner, repo, pr, headSha, summaryBody, [], { event: 'COMMENT' });
+            return;
+          }
+          console.error(`Chunk ${i + 1}: ${message} — aborting remaining chunks`);
+          const summaryBody = `**warp-review** could not complete the review \u2014 LLM API unreachable.\n\n<sub>Powered by [WarpMetrics](https://warpmetrics.com)</sub>`;
+          await postReview(owner, repo, pr, headSha, summaryBody, [], { event: 'COMMENT' });
+          return;
+        }
       }
     }
 
-    if (!Array.isArray(parsedComments)) parsedComments = [];
+    // All chunks failed with oversize errors
+    if (chunksFailed === chunks.length) {
+      console.error('All chunks exceeded context window');
+      const summaryBody = '**warp-review** could not complete the review \u2014 PR diff too large for the model context window.\n\n<sub>Powered by [WarpMetrics](https://warpmetrics.com)</sub>';
+      await postReview(owner, repo, pr, headSha, summaryBody, [], { event: 'COMMENT' });
+      return;
+    }
 
     // 12. Validate line numbers
     const filePatches = new Map();
@@ -272,7 +320,7 @@ export async function review(ctx) {
       filePatches.set(f.filename, f.patch);
     }
 
-    const validComments = parsedComments.filter(c => {
+    const validComments = allComments.filter(c => {
       if (!c.file || !c.line || !c.body) return false;
       const validLines = getValidLines(filePatches.get(c.file));
       return validLines.has(c.line);
@@ -282,12 +330,11 @@ export async function review(ctx) {
     const runId = typeof runRef === 'string' ? runRef : runRef?.id;
     const hasIssues = validComments.length > 0;
 
-    // 13. Log comment groups + outcome + act to WM (before posting review, so we know the act ID)
+    // 13. Log outcome + act to WM (before posting review, so we know the act ID)
     let reviewActId = null;
     let commentIds = [];
 
     if (round) {
-      // Outcome + act on the round (for the chain)
       const outcomeName = hasIssues ? 'Changes Requested' : 'Approved';
       const oc = outcome(round, outcomeName, { comments: validComments.length });
       if (oc) {
@@ -298,7 +345,8 @@ export async function review(ctx) {
 
     // 14. Post review (with act ID embedded for warp-coder)
     const summaryBody = buildSummary(validComments, filesToReview.length, runId, wmAvailable, {
-      totalFiltered: filtered.length, truncatedCount, actId: reviewActId,
+      totalFiltered: filtered.length, truncatedCount: truncatedCount + chunksFailed,
+      chunkCount: chunks.length, actId: reviewActId,
     });
     const reviewResult = await postReview(owner, repo, pr, headSha, summaryBody, validComments);
     const reviewId = reviewResult.id;
@@ -325,16 +373,15 @@ export async function review(ctx) {
       }
 
       group(round, '_summary', {
-        comments_generated: parsedComments.length,
+        comments_generated: allComments.length,
         comments_posted: validComments.length,
-        comments_dropped: parsedComments.length - validComments.length,
+        comments_dropped: allComments.length - validComments.length,
         github_review_id: reviewId,
       });
     }
 
     console.log(`warp-review: posted ${validComments.length} comment(s) on PR #${pr}`);
   } finally {
-    // 16. Flush
     try {
       await flush();
     } catch (e) {
